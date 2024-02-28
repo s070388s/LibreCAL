@@ -110,13 +110,13 @@ jobs:
           path: Software/LibreCAL-GUI/release
 
   PC_Application_OSX:
-    runs-on: macos-10.15
+    runs-on: macos-12
     steps:
       - uses: actions/checkout@v3
 
       - name: Install dependencies
         run: |
-          brew install qt@5 libusb
+          brew install qt@5 libusb pcre
           
       - name: Set Environment
         run: |
