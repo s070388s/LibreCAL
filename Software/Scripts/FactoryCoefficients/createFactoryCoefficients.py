@@ -6,6 +6,9 @@ import time
 import json
 import math
 import cmath
+from datetime import datetime
+import os
+import shutil
 #import VNA
 #from VNA_Example_LibreVNA import VNA
 from VNA_Example_SNA5000A import VNA
@@ -23,6 +26,7 @@ def SCPICommand(ser, cmd: str) -> str:
 parser = argparse.ArgumentParser(description = "Helps with creation of factory calibration coefficients for a new LibreCAL device")
 parser.add_argument('-f', '--flash', help='Flash the firmware file first', metavar="firmware")
 parser.add_argument('-l', '--limits', help='Enables limit checking on coefficients with limits from json file', metavar="json_limit_file")
+parser.add_argument('-d', '--directory', help='Save measured touchstone files to this path', metavar="touchstone_path")
 
 args = parser.parse_args()
 
@@ -36,7 +40,7 @@ if args.flash is not None:
         raise Exception("Flashing the firmware failed")
     
     print("Firmware flashed, waiting for device to boot")
-    time.sleep(2)
+    time.sleep(4)
 
 # Try to find the connected LibreCAL
 port = None
@@ -54,13 +58,25 @@ ser = serial.Serial(port.device, timeout = 2)
 idn = SCPICommand(ser, "*IDN?").split(",")
 if idn[0] != "LibreCAL":
     raise Exception("Invalid *IDN response: "+idn)
-print("Detected LibreCAL device has serial number "+idn[2])
+libreCAL_serial = idn[2]
+libreCAL_firmware = idn[3]
+print("Detected LibreCAL device has serial number "+libreCAL_serial)
 
-# Enable writing of the factory partition
-SCPICommand(ser, ":FACT:ENABLEWRITE I_AM_SURE")
-
-# Clear any potential old factory values
-SCPICommand(ser, ":FACT:DEL")
+# Set the time on the LibreCAL
+dt = datetime.now()
+now_utc = datetime.utcnow()
+utc_offset = dt - now_utc
+offset_seconds = int(utc_offset.total_seconds())
+offset_hours = abs(offset_seconds // 3600)
+offset_minutes = abs((offset_seconds // 60) % 60)
+if offset_seconds < 0:
+    sign = "-"
+else:
+    sign = "+"
+offset_str = f"{sign}{offset_hours:02d}:{offset_minutes:02d}"
+dt_str = dt.strftime("%Y/%m/%d %H:%M:%S")
+dt_str_with_offset = f"{dt_str} UTC{offset_str}"
+SCPICommand(ser, ":DATE_TIME "+dt_str_with_offset)
 
 if not VNA.checkIfReady():
     exit("VNA is not ready.")
@@ -124,11 +140,14 @@ def resetLibreCALPorts():
 
 def takeMeasurements(portmapping : dict):
     global Shorts, Opens, Loads, Throughs
-    
+
+    start = datetime.now()
     if not temperatureStable(ser):
         print("Waiting for LibreCAL temperature to stabilize...")
         while not temperatureStable(ser):
             time.sleep(0.1)
+            if (datetime.now() - start).total_seconds() > 180:
+                raise Exception("Timed out while waiting for temperature of LibreCAL to stabilize")
     
     measureShorts = False
     measureOpens = False
@@ -217,6 +236,67 @@ for conn in PortConnections[VNAports]:
     
 print("\r\nMeasurements complete.")
 
+rCoeffs = {}
+tCoeffs = {}
+
+for p in Opens:
+    rCoeffs["P"+str(p)+"_OPEN"] = Opens[p]
+for p in Shorts:
+    rCoeffs["P"+str(p)+"_SHORT"] = Shorts[p]
+for p in Loads:
+    rCoeffs["P"+str(p)+"_LOAD"] = Loads[p]
+for p in Throughs:
+    tCoeffs["P"+p+"_THROUGH"] = Throughs[p]
+
+if args.directory:
+    # Store measured parameter in files
+
+    # Save result on disk
+    try:
+        shutil.rmtree(args.directory + "/" + libreCAL_serial)
+    except:
+        pass
+    try:
+        os.remove(args.directory + "/" + libreCAL_serial + ".zip")
+    except:
+        pass
+
+    os.mkdir(args.directory + "/" + libreCAL_serial)
+    f = open(args.directory + "/" + libreCAL_serial + "/info.txt", "w")
+    f.write("Factory calibration data for LibreCAL\n")
+    f.write("Serial number: " + libreCAL_serial + "\n")
+    f.write("Firmware version: " + libreCAL_firmware + "\n")
+    f.write("Timestamp: " + datetime.now().isoformat() + "\n")
+    f.write("\n")
+    f.write("Calibration equipment:\n")
+    f.write(VNA.getInfo() + "\n")
+    for r in rCoeffs:
+        f = open(args.directory + "/" + libreCAL_serial + "/" + r + ".s1p", "w")
+        f.write("! Created by factory calibration script\n")
+        f.write("! "+datetime.now().isoformat()+"\n")
+        f.write("# GHz S RI R 50.0\n")
+        for data in rCoeffs[r]:
+            f.write(str(data[0] / 1000000000.0) + " " + str(data[1].real) + " " + str(data[1].imag) + "\n")
+        f.close()
+    for t in tCoeffs:
+        f = open(args.directory + "/" + libreCAL_serial + "/" + t + ".s2p", "w")
+        f.write("! Created by factory calibration script\n")
+        f.write("! "+datetime.now().isoformat()+"\n")
+        f.write("# GHz S RI R 50.0\n")
+        m = tCoeffs[t]
+        length = len(m["S11"])
+        for i in range(length):
+            f.write(str(m["S11"][i][0] / 1000000000.0)
+                    + " " + str(m["S11"][i][1].real) + " " + str(m["S11"][i][1].imag)
+                    + " " + str(m["S21"][i][1].real) + " " + str(m["S21"][i][1].imag)
+                    + " " + str(m["S12"][i][1].real) + " " + str(m["S12"][i][1].imag)
+                    + " " + str(m["S22"][i][1].real) + " " + str(m["S22"][i][1].imag) + "\n")
+        f.close()
+    # zip and delete uncompressed
+    shutil.make_archive(args.directory + "/" + libreCAL_serial, 'zip', args.directory + "/" + libreCAL_serial)
+    shutil.rmtree(args.directory + "/" + libreCAL_serial)
+
+
 if args.limits:
     jlimits = None
     try:
@@ -304,19 +384,13 @@ if args.limits:
                     if not success:
                         # this limit failed
                         raise Exception("Limit check failed for type "+str(i)+" in measurement "+str(key)+" at frequency "+str(sample[0])+": limit is "+str(limval)+", measured value is "+str(yval))
-                    
-rCoeffs = {}
-tCoeffs = {}
 
-for p in Opens:
-    rCoeffs["P"+str(p)+"_OPEN"] = Opens[p]
-for p in Shorts:
-    rCoeffs["P"+str(p)+"_SHORT"] = Shorts[p]
-for p in Loads:
-    rCoeffs["P"+str(p)+"_LOAD"] = Loads[p]
-for p in Throughs:
-    tCoeffs["P"+p+"_THROUGH"] = Throughs[p]
-    
+# Enable writing of the factory partition
+SCPICommand(ser, ":FACT:ENABLEWRITE I_AM_SURE")
+
+# Clear any potential old factory values
+SCPICommand(ser, ":FACT:DEL")
+
 for r in rCoeffs:
     print("Transferring "+r+" coefficient...")
     SCPICommand(ser, ":COEFF:CREATE FACTORY "+r)

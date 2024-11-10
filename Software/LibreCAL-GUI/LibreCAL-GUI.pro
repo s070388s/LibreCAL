@@ -17,6 +17,7 @@ SOURCES += \
         CustomWidgets/informationbox.cpp \
         CustomWidgets/siunitedit.cpp \
         CustomWidgets/touchstoneimport.cpp \
+        Util/usbinbuffer.cpp \
         Util/util.cpp \
         about.cpp \
         appwindow.cpp \
@@ -32,7 +33,13 @@ LIBS += -lusb-1.0
 unix:LIBS += -L/usr/lib/
 win32:LIBS += -L"$$_PRO_FILE_PWD_" # Github actions placed libusb here
 osx:INCPATH += /usr/local/include
-osx:LIBS += $(shell pkg-config --libs libusb-1.0)
+osx:LIBS += -L/usr/local/lib
+
+mac{
+	QT_CONFIG -= no-pkg-config
+	CONFIG += link_pkgconfig
+	PKGCONFIG += libusb-1.0
+}
 
 # libusb-1.0.23 shall be extracted in same directory as this file
 windows{
@@ -50,7 +57,7 @@ windows{
 
 REVISION = $$system(git rev-parse HEAD)
 DEFINES += GITHASH=\\"\"$$REVISION\\"\"
-DEFINES += FW_MAJOR=0 FW_MINOR=2 FW_PATCH=0 FW_SUFFIX=""#\\"\"-alpha.2\\"\"
+DEFINES += FW_MAJOR=0 FW_MINOR=2 FW_PATCH=1 FW_SUFFIX=""#\\"\"-alpha.2\\"\"
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
@@ -62,6 +69,7 @@ HEADERS += \
     CustomWidgets/siunitedit.h \
     CustomWidgets/touchstoneimport.h \
     Util/qpointervariant.h \
+    Util/usbinbuffer.h \
     Util/util.h \
     about.h \
     appwindow.h \

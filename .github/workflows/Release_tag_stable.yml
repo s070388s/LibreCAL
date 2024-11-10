@@ -1,16 +1,16 @@
-name: Build
+name: Upload release for tag stable
 
 on:
-   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
+
   PC_Application_Ubuntu:
     runs-on: ubuntu-22.04
+    outputs:
+      upload_url: ${{ steps.bump_release.outputs.upload_url }} 
     steps:
       - uses: actions/checkout@v4
 
@@ -20,10 +20,6 @@ jobs:
           sudo apt-get install -y libusb-1.0-0-dev qt6-tools-dev qt6-base-dev libqt6charts6-dev libqt6svg6-dev libgl-dev
           qtchooser -install qt6 $(which qmake6)
 
-      - name: Get build timestamp
-        id: id_date
-        run: echo "timestamp=$(date +%Y-%m-%d-%H-%M-%S)" >> $GITHUB_OUTPUT
-
       - name: Get app version
         id: id_version
         run: |
@@ -31,7 +27,7 @@ jobs:
           fw_major=`grep -oP '(?<=FW_MAJOR=)[0-9]+' LibreCAL-GUI.pro`
           fw_minor=`grep -oP '(?<=FW_MINOR=)[0-9]+' LibreCAL-GUI.pro`
           fw_patch=`grep -oP '(?<=FW_PATCH=)[0-9]+' LibreCAL-GUI.pro` 
-          echo "app_version=v$fw_major.$fw_minor.$fw_patch-${{steps.id_date.outputs.timestamp}}" >> $GITHUB_OUTPUT
+          echo "app_version=v$fw_major.$fw_minor.$fw_patch" >> $GITHUB_OUTPUT
 
       - name: Build application
         run: |
@@ -39,17 +35,37 @@ jobs:
           export QT_SELECT=qt6
           qmake LibreCAL-GUI.pro
           make -j9
+          zip LibreCAL-GUI.zip LibreCAL-GUI
         shell: bash
 
-      - name: Upload artifact
-        env: 
+      - name: Bump release page
+        id: bump_release
+        uses: actions/create-release@v1
+        env:
           LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
-        uses: actions/upload-artifact@v3
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: LibreCAL-GUI-Ubuntu-${{env.LIBRECAL_VERSION}}
-          path: Software/LibreCAL-GUI/LibreCAL-GUI
+          tag_name: ${{env.LIBRECAL_VERSION}}
+          release_name: ${{env.LIBRECAL_VERSION}}
+          body: |
+              See [CHANGELOG](https://github.com/${{github.repository}}/blob/${{env.LIBRECAL_VERSION}}/CHANGELOG.md) for more information.
+          draft: false
+          prerelease: false
+
+      - name: 'Upload release asset'
+        uses: actions/upload-release-asset@v1
+        env:
+          LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.bump_release.outputs.upload_url }}
+          asset_path: ./Software/LibreCAL-GUI/LibreCAL-GUI.zip
+          asset_name: LibreCAL-GUI-Ubuntu-${{env.LIBRECAL_VERSION}}.zip
+          asset_content_type: application/tar+gzip
+         
           
   PC_Application_Windows:
+    needs: PC_Application_Ubuntu
     runs-on: windows-2019
     steps:
       - uses: actions/checkout@v4
@@ -70,11 +86,6 @@ jobs:
           Xcopy /E /I /Y libusb\MinGW64\static Software\LibreCAL-GUI
         shell: cmd
 
-      - name: Get build timestamp
-        shell: msys2 {0}
-        id: id_date
-        run: echo "timestamp=$(date +%Y-%m-%d-%H-%M-%S)" >> $GITHUB_OUTPUT
-
       - name: Get app version
         id: id_version
         shell: msys2 {0}
@@ -83,7 +94,7 @@ jobs:
           fw_major=`grep -oP '(?<=FW_MAJOR=)[0-9]+' LibreCAL-GUI.pro`
           fw_minor=`grep -oP '(?<=FW_MINOR=)[0-9]+' LibreCAL-GUI.pro`
           fw_patch=`grep -oP '(?<=FW_PATCH=)[0-9]+' LibreCAL-GUI.pro` 
-          echo "app_version=v$fw_major.$fw_minor.$fw_patch-${{steps.id_date.outputs.timestamp}}" >> $GITHUB_OUTPUT
+          echo "app_version=v$fw_major.$fw_minor.$fw_patch" >> $GITHUB_OUTPUT
 
       - name: Build application
         run: |
@@ -102,16 +113,27 @@ jobs:
           copy "..\..\..\..\Qt\6.2.0\mingw81_64\bin\libstdc++-6.dll" .
           copy ..\..\..\..\Qt\6.2.0\mingw81_64\bin\Qt6OpenGL.dll .
         shell: cmd
-        
-      - name: Upload
-        uses: actions/upload-artifact@v3
+
+      - name: Zip app
+        shell: cmd
         env: 
           LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
-        with:
-          name: GUI_Windows-${{env.LIBRECAL_VERSION}}
-          path: Software/LibreCAL-GUI/release
+        run: |
+          7z a LibreCAL-GUI_Windows-${{env.LIBRECAL_VERSION}}.zip ./Software/LibreCAL-GUI/release
 
+      - name: 'Upload release asset'
+        uses: actions/upload-release-asset@v1
+        env:
+          LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.PC_Application_Ubuntu.outputs.upload_url }}
+          asset_path: ./LibreCAL-GUI_Windows-${{env.LIBRECAL_VERSION}}.zip
+          asset_name: LibreCAL-GUI_Windows-${{env.LIBRECAL_VERSION}}.zip
+          asset_content_type: application/tar+gzip
+          
   PC_Application_OSX:
+    needs: PC_Application_Ubuntu
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,10 +146,6 @@ jobs:
         run: |
           echo "/usr/local/opt/qt@6/bin" >> $GITHUB_PATH
           
-      - name: Get build timestamp
-        id: id_date
-        run: echo "timestamp=$(date +%Y-%m-%d-%H-%M-%S)" >> $GITHUB_OUTPUT
-
       - name: Get app version
         id: id_version
         run: |
@@ -135,8 +153,8 @@ jobs:
           fw_major=`pcregrep -o '(?<=FW_MAJOR=)[0-9]+' LibreCAL-GUI.pro`
           fw_minor=`pcregrep -o '(?<=FW_MINOR=)[0-9]+' LibreCAL-GUI.pro`
           fw_patch=`pcregrep -o '(?<=FW_PATCH=)[0-9]+' LibreCAL-GUI.pro` 
-          echo "app_version=v$fw_major.$fw_minor.$fw_patch-${{steps.id_date.outputs.timestamp}}" >> $GITHUB_OUTPUT
-          
+          echo "app_version=v$fw_major.$fw_minor.$fw_patch" >> $GITHUB_OUTPUT
+
       - name: Build application
         run: |
           cd Software/LibreCAL-GUI
@@ -146,15 +164,19 @@ jobs:
           zip -ry LibreCAL-GUI.zip LibreCAL-GUI.app
         shell: bash
 
-      - name: Upload artifact
-        env: 
+      - name: 'Upload release asset'
+        uses: actions/upload-release-asset@v1
+        env:
           LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
-        uses: actions/upload-artifact@v3
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: LibreCAL-GUI-OSX-${{env.LIBRECAL_VERSION}}
-          path: Software/LibreCAL-GUI/LibreCAL-GUI.zip
-
+          upload_url: ${{ needs.PC_Application_Ubuntu.outputs.upload_url }}
+          asset_path: ./Software/LibreCAL-GUI/LibreCAL-GUI.zip
+          asset_name: LibreCAL-GUI-OSX-${{env.LIBRECAL_VERSION}}.zip
+          asset_content_type: application/tar+gzip
+          
   Embedded_Firmware:
+    needs: PC_Application_Ubuntu
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v4
@@ -169,10 +191,6 @@ jobs:
           echo 'export PICO_SDK_PATH=/opt/pico-sdk' | sudo tee -a /etc/profile.d/pico-sdk.sh
           source /etc/profile
         
-      - name: Get build timestamp
-        id: id_date
-        run: echo "timestamp=$(date +%Y-%m-%d-%H-%M-%S)" >> $GITHUB_OUTPUT
-
       - name: Get app version
         id: id_version
         run: |
@@ -190,14 +208,23 @@ jobs:
           cmake ..
           make -j9
           make -j9
+          cp LibreCAL.uf2 ../../../
         shell: bash
 
-      - name: Upload
-        uses: actions/upload-artifact@v3
+      - name: Zip firmware
         env: 
           LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
+        run: |
+          zip EmbeddedFirmware-${{env.LIBRECAL_VERSION}}.zip LibreCAL.uf2
+        shell: bash
+        
+      - name: 'Upload release asset'
+        uses: actions/upload-release-asset@v1
+        env:
+          LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: EmbeddedFirmware-${{env.LIBRECAL_VERSION}}
-          path: |
-            Software/LibreCAL/build/LibreCAL.uf2
-
+          upload_url: ${{ needs.PC_Application_Ubuntu.outputs.upload_url }}
+          asset_path: ./EmbeddedFirmware-${{env.LIBRECAL_VERSION}}.zip
+          asset_name: EmbeddedFirmware-${{env.LIBRECAL_VERSION}}.zip
+          asset_content_type: application/tar+gzip

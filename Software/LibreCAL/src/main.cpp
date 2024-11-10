@@ -35,7 +35,7 @@ const char* time = __TIME__;
 					: date[2] == 't' ? 10 \
 					: date[2] == 'v' ? 11 : 12)
 
-#define DAY(date)   ((date[4] - '0') * 10 + (date[5] - '0'))
+#define DAY(date)   ((date[4] == ' ' ? 0 : (date[4] - '0') * 10) + (date[5] - '0'))
 #define HOUR(time)  ((time[0] - '0') * 10 + (time[1] - '0'))
 #define MINUTE(time) ((time[3] - '0') * 10 + (time[4] - '0'))
 #define SECOND(time) ((time[6] - '0') * 10 + (time[7] - '0'))
@@ -170,7 +170,7 @@ int main(void) {
 	rtc_set_datetime(&t);
 	// clk_sys is >2000x faster than clk_rtc, so datetime is not updated immediately when rtc_get_datetime() is called.
 	// the delay is up to 3 RTC clock cycles (which is 64us with the default clock settings)
-	sleep_us(64);
+	busy_wait_us(64);
 
 	Switch::Init();
 	UserInterface::Init();
