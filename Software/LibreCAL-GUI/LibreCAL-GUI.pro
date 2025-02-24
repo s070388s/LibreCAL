@@ -1,6 +1,6 @@
 CONFIG += c++17
 
-QT += core gui widgets charts svg
+QT += core gui widgets charts svg network
 
 # The following define makes your compiler emit warnings if you use
 # any Qt feature that has been marked deprecated (the exact warnings
@@ -17,6 +17,9 @@ SOURCES += \
         CustomWidgets/informationbox.cpp \
         CustomWidgets/siunitedit.cpp \
         CustomWidgets/touchstoneimport.cpp \
+        Util/QMicroz/miniz.c \
+        Util/QMicroz/qmicroz.cpp \
+        Util/QMicroz/tools.cpp \
         Util/usbinbuffer.cpp \
         Util/util.cpp \
         about.cpp \
@@ -44,6 +47,7 @@ mac{
 # libusb-1.0.23 shall be extracted in same directory as this file
 windows{
     INCLUDEPATH += ./libusb-1.0.23/include
+    DEFINES += QMICROZ_LIBRARY
     contains(QMAKE_CC, gcc){
         # MingW64 libusb static lib
         LIBS += -L"$$_PRO_FILE_PWD_"/libusb-1.0.23/MinGW64/static
@@ -57,7 +61,7 @@ windows{
 
 REVISION = $$system(git rev-parse HEAD)
 DEFINES += GITHASH=\\"\"$$REVISION\\"\"
-DEFINES += FW_MAJOR=0 FW_MINOR=2 FW_PATCH=1 FW_SUFFIX=""#\\"\"-alpha.2\\"\"
+DEFINES += FW_MAJOR=0 FW_MINOR=2 FW_PATCH=3 FW_SUFFIX=""#\\"\"-alpha.2\\"\"
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
@@ -68,6 +72,9 @@ HEADERS += \
     CustomWidgets/informationbox.h \
     CustomWidgets/siunitedit.h \
     CustomWidgets/touchstoneimport.h \
+    Util/QMicroz/miniz.h \
+    Util/QMicroz/qmicroz.h \
+    Util/QMicroz/tools.h \
     Util/qpointervariant.h \
     Util/usbinbuffer.h \
     Util/util.h \
@@ -84,6 +91,7 @@ HEADERS += \
 FORMS += \
     CustomWidgets/touchstoneimport.ui \
     aboutdialog.ui \
+    factoryUpdateDialog.ui \
     main.ui \
     touchstoneimportdialog.ui
 

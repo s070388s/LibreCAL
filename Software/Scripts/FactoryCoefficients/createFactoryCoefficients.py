@@ -9,6 +9,7 @@ import cmath
 from datetime import datetime
 import os
 import shutil
+from ftplib import FTP
 #import VNA
 #from VNA_Example_LibreVNA import VNA
 from VNA_Example_SNA5000A import VNA
@@ -27,8 +28,12 @@ parser = argparse.ArgumentParser(description = "Helps with creation of factory c
 parser.add_argument('-f', '--flash', help='Flash the firmware file first', metavar="firmware")
 parser.add_argument('-l', '--limits', help='Enables limit checking on coefficients with limits from json file', metavar="json_limit_file")
 parser.add_argument('-d', '--directory', help='Save measured touchstone files to this path', metavar="touchstone_path")
+parser.add_argument('--ftp', help='Save measured touchstone files to a FTP server (requires --directory)', metavar="ftp_json_file")
 
 args = parser.parse_args()
+
+if args.ftp and not args.directory:
+    raise Exception("ftp option is only valid when directory option is also specified")
 
 if args.flash is not None:
     # Check if picotool is available
@@ -317,17 +322,18 @@ if args.limits:
             measurements = Loads
         elif i == "THRU REFLECTION":
             for through in Throughs:
-                measurements[through+"_S11"] = Throughs[through]["S11"]
-                measurements[through+"_S22"] = Throughs[through]["S22"]
+                measurements[through + "_S11"] = Throughs[through]["S11"]
+                measurements[through + "_S22"] = Throughs[through]["S22"]
         elif i == "THRU TRANSMISSION":
             for through in Throughs:
-                measurements[through+"_S12"] = Throughs[through]["S12"]
-                measurements[through+"_S21"] = Throughs[through]["S21"]    
+                measurements[through + "_S12"] = Throughs[through]["S12"]
+                measurements[through + "_S21"] = Throughs[through]["S21"]
         elif i == "OPEN SHORT PHASE":
             for key in Opens.keys():
                 if key not in Shorts:
                     # should not happen
-                    raise RuntimeError("Got an open measurement without corresponding short measurement at port "+str(key))
+                    raise RuntimeError(
+                        "Got an open measurement without corresponding short measurement at port " + str(key))
                 samples = max(len(Opens[key]), len(Shorts[key]))
                 open_vs_short = []
                 for j in range(samples):
@@ -335,41 +341,69 @@ if args.limits:
                         # this sample uses the same frequency (should always be the case)
                         open_vs_short.append((Opens[key][j][0], Opens[key][j][1] / Shorts[key][j][1]))
                     else:
-                        raise RuntimeError("Open and short measurements have difference frequencies at port "+str(key))
+                        raise RuntimeError(
+                            "Open and short measurements have difference frequencies at port " + str(key))
                 measurements[key] = open_vs_short
-                    
+
         if len(measurements) == 0:
             # unknown limit keyword, nothing to check
             continue
-           
+
         # iterate over and check the specified limits
         for limit in jlimits[i]:
             # iterate over the measurements we need to check
             for key in measurements.keys():
+                if "applicable_to" in limit:
+                    # this limit only applies to some through measurements
+                    meas_name = key[0:2]
+                    #print(limit, meas_name)
+                    if not meas_name in limit["applicable_to"]:
+                        # not applicable for this through measurements
+                        continue
                 # check every sample in the measurement
+
+                # keep track of unwrapped phase for delay limits
+                unwrapped_phase = cmath.phase(measurements[key][0][1])
+                if i == "SHORT":
+                    # phase for short standards is inverted
+                    unwrapped_phase = unwrapped_phase + math.pi
+                    if unwrapped_phase > math.pi:
+                        unwrapped_phase = unwrapped_phase - 2 * math.pi
+
                 for sample in measurements[key]:
+                    # update unwrapped phase
+                    phase = cmath.phase(sample[1])
+                    if i == "SHORT":
+                        # phase for short standards is inverted
+                        phase = phase + math.pi
+                    while phase - math.pi > unwrapped_phase:
+                        phase = phase - 2 * math.pi
+                    unwrapped_phase = phase
+
                     if sample[0] < limit["x1"] or sample[0] > limit["x2"]:
                         # Sample not covered by this limit
                         continue
                     # calculate limit value for this sample
                     alpha = (sample[0] - limit["x1"]) / (limit["x2"] - limit["x1"])
                     limval = limit["y1"] + alpha * (limit["y2"] - limit["y1"])
-                    
+
                     # transform y value according to limit type
                     yval = None
                     if limit["type"] == "dB":
-                        yval = 20*math.log10(abs(sample[1]))
+                        yval = 20 * math.log10(abs(sample[1]))
                     elif limit["type"] == "phase":
-                        yval = math.degrees(cmath.polar(sample[1])[1])
+                        yval = math.degrees(cmath.phase(sample[1]))
                         # contrain to [0, 360)
                         while yval < 0:
                             yval += 360
                         while yval >= 360:
                             yval -= 360
+                    elif limit["type"] == "delay":
+                        yval = -unwrapped_phase / (2 * math.pi) / sample[0]
                     else:
                         # unknown limit type
-                        raise Exception("Unknown limit type: "+str(limit["type"]))
-                     
+                        raise Exception("Unknown limit type: " + str(limit["type"]))
+
                     # perform the actual limit check
                     success = True
                     if limit["limit"] == "max":
@@ -380,11 +414,35 @@ if args.limits:
                             success = False
                     else:
                         # unknown limit
-                        raise Exception("Unknown limit: "+str(limit["limit"]))
+                        raise Exception("Unknown limit: " + str(limit["limit"]))
                     if not success:
                         # this limit failed
-                        raise Exception("Limit check failed for type "+str(i)+" in measurement "+str(key)+" at frequency "+str(sample[0])+": limit is "+str(limval)+", measured value is "+str(yval))
+                        raise Exception("Limit check ("+limit["type"]+") failed for type " + str(i) + " in measurement "
+                                        + str(key) + " at frequency " + str(sample[0]) + ": limit is " + str(
+                                        limval) + ", measured value is " + str(yval))
 
+# Limits are valid, upload to FTP server at this point
+if args.ftp:
+    print("Uploading to FTP server...")
+    jftp = None
+    try:
+        f = open(args.ftp)
+        jftp = json.load(f)
+    except Exception as e:
+        raise Exception("Failed to parse FTP config file: "+str(e))
+        
+    try:
+        ftp = FTP(host=jftp["host"], user=jftp["user"], passwd=jftp["password"])
+        # Open the previously created zip file
+        zipname = libreCAL_serial + '.zip'
+        zippath = args.directory + "/" + zipname
+        zipfile = open(zippath, 'rb')
+        ftp.storbinary("STOR "+zipname, zipfile)
+        zipfile.close()
+        ftp.quit()
+    except Exception as e:
+        raise Exception("FTP transfer failed: "+str(e))
+        
 # Enable writing of the factory partition
 SCPICommand(ser, ":FACT:ENABLEWRITE I_AM_SURE")
 

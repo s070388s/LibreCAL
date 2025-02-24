@@ -17,6 +17,8 @@ public:
     AppWindow();
     ~AppWindow();
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
 private slots:
     int UpdateDeviceList();
     bool ConnectToDevice(QString serial = QString());
@@ -46,8 +48,6 @@ private:
     QTimer *updateTimer;
     // temperature chart widgets
     QLineSeries *tempSeries, *heaterSeries;
-
-    bool backgroundOperations;
 };
 
 #endif // APPWINDOW_H
