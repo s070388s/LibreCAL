@@ -6,6 +6,8 @@
 #include "task.h"
 #include "pico/stdlib.h"
 #include <cstring>
+#include "Log.h"
+#include "main.h"
 
 namespace UserInterface {
 
@@ -36,7 +38,16 @@ constexpr uint32_t ledBlinkPeriod = 200;
 constexpr uint32_t ledBlinkOnTime = 100;
 
 void setLED(LED led, bool on) {
+#ifdef ENABLE_UART
+	if(LEDpins[(int) led] == LOG_UART_PIN) {
+		return;
+	}
+#endif
 	gpio_put(LEDpins[(int) led], !on);
+}
+
+bool IsFunctionHeld() {
+	return !gpio_get(Buttonpins[(int)Button::FUNCTION]);
 }
 
 void Task(void*) {
@@ -90,11 +101,14 @@ void Task(void*) {
 		}
 
 		// update LEDs
+
+		// wait/ready are solid on when in default mode and blink when in any other mode
+		bool on = (getUsbMode() == MODE_DEFAULT) || (xTaskGetTickCount() % ledBlinkPeriod > ledBlinkOnTime);
 		if(Heater::IsStable()) {
 			setLED(LED::WAIT, false);
-			setLED(LED::READY, true);
+			setLED(LED::READY, on);
 		} else {
-			setLED(LED::WAIT, true);
+			setLED(LED::WAIT, on);
 			setLED(LED::READY, false);
 		}
 		if(editing) {
@@ -134,6 +148,11 @@ void Task(void*) {
 void Init() {
 	// Initialize pins
 	for(uint8_t i=0;i<sizeof(LEDpins);i++) {
+#ifdef ENABLE_UART
+		if(LEDpins[i] == LOG_UART_PIN) {
+			continue;
+		}
+#endif
 		gpio_init(LEDpins[i]);
 	    gpio_set_dir(LEDpins[i], GPIO_OUT);
 	    gpio_put(LEDpins[i], true);
@@ -143,7 +162,7 @@ void Init() {
 	    gpio_set_dir(Buttonpins[i], GPIO_IN);
 	    gpio_set_pulls(Buttonpins[i], true, false);
 	}
-	xTaskCreate(Task, "UserInterface", 512, NULL, 1, NULL);
+	xTaskCreate(Task, "UserInterface", 512, NULL, 3, NULL);
 }
 
 };

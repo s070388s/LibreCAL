@@ -70,8 +70,8 @@ static void handleIncoming(char *buf, uint16_t *recCnt, uint8_t interface) {
 	}
 	*recCnt += cnt;
 	char *lineEnd;
-	while(lineEnd = strnstr(buf, "\r\n", *recCnt)) {
-		uint16_t bytes = lineEnd - buf + 2;
+	while(lineEnd = memchr(buf, '\n', *recCnt)) {
+		uint16_t bytes = lineEnd - buf + 1;
 		if(callback) {
 			callback(buf, bytes, interface);
 		}
@@ -94,7 +94,7 @@ void tud_cdc_rx_cb(uint8_t itf)
 	handleIncoming(buf, &recCnt, USB_INTERFACE_CDC);
 }
 
-void tud_vendor_rx_cb(uint8_t itf)
+void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize)
 {
 	static uint8_t buf[USB_REC_BUFFER_SIZE];
 	static uint16_t recCnt = 0;
@@ -108,10 +108,12 @@ static void tinyUSB_task(void* ptr) {
 	}
 }
 
+static TaskHandle_t usb_task;
+
 void usb_init(usbd_recv_callback_t receive_callback) {
 	callback = receive_callback;
 	tud_init(0);
-	xTaskCreate(tinyUSB_task, "TinyUSB", 1024, NULL, 1, NULL);
+	xTaskCreate(tinyUSB_task, "TinyUSB", 1024, NULL, 3, &usb_task);
 }
 bool usb_transmit(const uint8_t *data, uint16_t length, uint8_t i) {
 	if(i == USB_INTERFACE_CDC) {

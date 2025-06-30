@@ -151,11 +151,55 @@ jobs:
           LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
         uses: actions/upload-artifact@v4
         with:
-          name: LibreCAL-GUI-OSX-${{env.LIBRECAL_VERSION}}
+          name: LibreCAL-GUI-OSX-latest-${{env.LIBRECAL_VERSION}}
           path: Software/LibreCAL-GUI/LibreCAL-GUI.zip
 
+  PC_Application_OSX_13:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install qt@6 pcre
+
+      - name: Set Environment
+        run: |
+          echo "/usr/local/opt/qt@6/bin" >> $GITHUB_PATH
+          
+      - name: Get build timestamp
+        id: id_date
+        run: echo "timestamp=$(date +%Y-%m-%d-%H-%M-%S)" >> $GITHUB_OUTPUT
+
+      - name: Get app version
+        id: id_version
+        run: |
+          cd Software/LibreCAL-GUI
+          fw_major=`pcregrep -o '(?<=FW_MAJOR=)[0-9]+' LibreCAL-GUI.pro`
+          fw_minor=`pcregrep -o '(?<=FW_MINOR=)[0-9]+' LibreCAL-GUI.pro`
+          fw_patch=`pcregrep -o '(?<=FW_PATCH=)[0-9]+' LibreCAL-GUI.pro` 
+          echo "app_version=v$fw_major.$fw_minor.$fw_patch-${{steps.id_date.outputs.timestamp}}" >> $GITHUB_OUTPUT
+          
+      - name: Build application
+        run: |
+          cd Software/LibreCAL-GUI
+          qmake LibreCAL-GUI.pro
+          make -j9
+          macdeployqt LibreCAL-GUI.app
+          zip -ry LibreCAL-GUI.zip LibreCAL-GUI.app
+        shell: bash
+
+      - name: Upload artifact
+        env: 
+          LIBRECAL_VERSION: "${{steps.id_version.outputs.app_version}}"
+        uses: actions/upload-artifact@v4
+        with:
+          name: LibreCAL-GUI-OSX-13.7-${{env.LIBRECAL_VERSION}}
+          path: Software/LibreCAL-GUI/LibreCAL-GUI.zip
+
+
   Embedded_Firmware:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -164,7 +208,7 @@ jobs:
           sudo apt-get update
           sudo apt install -y build-essential gcc-arm-none-eabi binutils-arm-none-eabi 
           sudo git clone https://github.com/raspberrypi/pico-sdk.git /opt/pico-sdk
-          sudo git -C /opt/pico-sdk checkout 2.0.0
+          sudo git -C /opt/pico-sdk checkout 2.1.1
           sudo git -C /opt/pico-sdk submodule update --init
           echo 'export PICO_SDK_PATH=/opt/pico-sdk' | sudo tee -a /etc/profile.d/pico-sdk.sh
           source /etc/profile
@@ -188,7 +232,6 @@ jobs:
           cd Software/LibreCAL
           mkdir build && cd build
           cmake ..
-          make -j9
           make -j9
         shell: bash
 

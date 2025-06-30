@@ -42,6 +42,7 @@ mac{
 	QT_CONFIG -= no-pkg-config
 	CONFIG += link_pkgconfig
 	PKGCONFIG += libusb-1.0
+    ICON = resources/librecal.icns
 }
 
 # libusb-1.0.23 shall be extracted in same directory as this file
@@ -61,7 +62,7 @@ windows{
 
 REVISION = $$system(git rev-parse HEAD)
 DEFINES += GITHASH=\\"\"$$REVISION\\"\"
-DEFINES += FW_MAJOR=0 FW_MINOR=2 FW_PATCH=3 FW_SUFFIX=""#\\"\"-alpha.2\\"\"
+DEFINES += FW_MAJOR=0 FW_MINOR=3 FW_PATCH=0 FW_SUFFIX=""#\\"\"-alpha.2\\"\"
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

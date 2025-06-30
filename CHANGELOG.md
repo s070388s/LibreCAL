@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.0
+
+- add emulation mode for use with Siglent VNAs
+- update to Pico SDK 2.1.1 (improves USB stability)
+- fix intermittent deadlock during USB communication
+- fix timing of CS pin to flash chip which can lead to failed writes
+- accept \\r\\n and \\n as line endings for SCPI commands 
+
 ## v0.2.3
 
 - minor error recovery improvements for USB connection problems
