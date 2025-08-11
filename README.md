@@ -28,7 +28,7 @@
 
 All of the following steps are only required if you plan to use the LibreCAL-GUI. If you plan to control the LibreCAL manually with the buttons, through a script or the LibreVNA-GUI, there is no need to download the LibreCAL-GUI (but you should still install the udev rule on Linux systems).
 
-### Windows
+### Windows (10 or 11)
 * Download the latest [Release](https://github.com/jankae/LibreCAL/releases) and unpack the zip file
 * Start the included LibreCAL-GUI.exe
 * No installation or driver is required, simply move the extracted folder somewhere convenient
